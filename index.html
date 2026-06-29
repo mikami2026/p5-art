@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generative Sketches — p5.js</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<style>
+  :root {
+    --ink: #0b0d12;
+    --surface: #11141d;
+    --line: rgba(255,255,255,0.08);
+    --paper: #e8e9ef;
+    --muted: #828aa0;
+    --signal: #6fd6c6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink);
+    color: var(--paper);
+    font-family: "Inter", -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  /* ---- header ---- */
+  header { padding: 88px 0 56px; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: "JetBrains Mono", monospace; font-size: 12px; letter-spacing: 0.18em;
+    color: var(--signal); text-transform: uppercase; margin: 0 0 20px;
+  }
+  h1 {
+    font-family: "Space Grotesk", sans-serif; font-weight: 700;
+    font-size: clamp(38px, 7vw, 76px); line-height: 1.02; letter-spacing: -0.02em;
+    margin: 0 0 24px;
+  }
+  h1 .alt { color: var(--muted); font-weight: 400; }
+  .lede { max-width: 540px; color: #c2c6d4; font-size: 16px; margin: 0; }
+
+  /* ---- grid ---- */
+  .grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 1px; background: var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .card {
+    background: var(--ink); padding: 28px;
+    text-decoration: none; color: inherit;
+    display: flex; flex-direction: column;
+    transition: background 0.25s ease;
+  }
+  .card:hover { background: var(--surface); }
+  .card:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+  .num {
+    font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .preview {
+    margin: 16px 0 20px; aspect-ratio: 16 / 9; width: 100%;
+    background: #07080c; border: 1px solid var(--line); border-radius: 6px;
+    overflow: hidden; position: relative;
+  }
+  .preview canvas { display: block; }
+  .card h2 {
+    font-family: "Space Grotesk", sans-serif; font-weight: 500;
+    font-size: 21px; margin: 0 0 4px; letter-spacing: -0.01em;
+  }
+  .card h2 .en { color: var(--muted); font-size: 14px; font-weight: 400; margin-left: 8px; }
+  .tag {
+    font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: 0.08em;
+    color: var(--signal); text-transform: uppercase; margin: 0 0 12px;
+  }
+  .desc { color: #b6bac8; font-size: 14px; margin: 0; }
+  .open {
+    margin-top: 16px; font-family: "JetBrains Mono", monospace; font-size: 12px;
+    color: var(--muted); letter-spacing: 0.05em;
+  }
+  .card:hover .open { color: var(--signal); }
+  .open::after { content: " →"; }
+
+  /* ---- footer ---- */
+  footer { padding: 40px 0 72px; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--paper); text-decoration: none; border-bottom: 1px solid var(--line); }
+  footer a:hover { border-color: var(--signal); color: var(--signal); }
+  .foot-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    font-family: "JetBrains Mono", monospace; }
+
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+    header { padding: 56px 0 40px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Generative Art · p5.js</p>
+    <h1>規則が<br>形になる<span class="alt">。</span></h1>
+    <p class="lede">単純なルールから複雑さが生まれる瞬間を集めた、ブラウザで動かせる小品集。
+      noise・セルオートマトン・再帰という、生成アートの異なる原理をひとつずつ手で組みました。</p>
+  </header>
+
+  <main class="grid">
+    <a class="card" href="01-circles/index.html">
+      <span class="num">01</span>
+      <div class="preview" id="prev-circles"></div>
+      <h2>漂う円<span class="en">Drifting Circles</span></h2>
+      <p class="tag">Draw Loop</p>
+      <p class="desc">毎フレーム描き続ける draw() の基本。半透明の円が重なって濃淡を作る。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="02-flowfield/index.html">
+      <span class="num">02</span>
+      <div class="preview" id="prev-flow"></div>
+      <h2>流れ場<span class="en">Flow Field</span></h2>
+      <p class="tag">Perlin Noise</p>
+      <p class="desc">noise() で作った見えない流れに沿って、数千の粒子が川のように動く。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="03-gameoflife/index.html">
+      <span class="num">03</span>
+      <div class="preview" id="prev-life"></div>
+      <h2>ライフゲーム<span class="en">Game of Life</span></h2>
+      <p class="tag">Cellular Automaton</p>
+      <p class="desc">周囲の生死だけで次が決まる単純な規則から、模様が自己組織化していく。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="04-fractal/index.html">
+      <span class="num">04</span>
+      <div class="preview" id="prev-tree"></div>
+      <h2>再帰の木<span class="en">Fractal Tree</span></h2>
+      <p class="tag">Recursion</p>
+      <p class="desc">枝が自分自身を呼んで枝分かれする。短いコードから自己相似の木が育つ。</p>
+      <span class="open">開く</span>
+    </a>
+  </main>
+
+  <footer>
+    <div class="foot-row">
+      <span>Built with p5.js</span>
+      <span><a href="https://github.com/mikami2026" target="_blank" rel="noopener">github.com/mikami2026</a></span>
+    </div>
+  </footer>
+</div>
+
+<script>
+// 各カードのライブプレビュー（p5 インスタンスモードで軽量に動かす）
+const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function sizeOf(el) { const w = el.clientWidth || 300; return { w, h: Math.round(w * 9 / 16) }; }
+
+// --- 01 漂う円 ---
+new p5((p) => {
+  let pts = [], d;
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-circles'));
+    p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
+    p.background(20); p.noStroke();
+    for (let i = 0; i < 3; i++) pts.push({ x: p.random(d.w), y: p.random(d.h), o: p.random(1000) });
+  };
+  p.draw = () => {
+    for (const pt of pts) {
+      pt.x = p.noise(pt.o) * d.w; pt.y = p.noise(pt.o + 99) * d.h; pt.o += 0.008;
+      p.fill(p.random(180, 280), 70, 90, 22);
+      p.circle(pt.x, pt.y, p.random(8, 34));
+    }
+    if (reduce && p.frameCount > 80) p.noLoop();
+  };
+}, document.getElementById('prev-circles'));
+
+// --- 02 流れ場 ---
+new p5((p) => {
+  let parts = [], flow = [], d, cols, rows, z = 0; const SCL = 12, N = 110;
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-flow'));
+    p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 1);
+    p.background(230, 40, 6); cols = Math.floor(d.w/SCL)+1; rows = Math.floor(d.h/SCL)+1;
+    const base = 200;
+    for (let i = 0; i < N; i++) parts.push({
+      x: p.random(d.w), y: p.random(d.h), px: 0, py: 0, ms: p.random(0.8, 2),
+      h: (base + p.random(-30, 60))
+    });
+    for (const pt of parts) { pt.px = pt.x; pt.py = pt.y; }
+  };
+  p.draw = () => {
+    let yo = 0;
+    for (let y = 0; y < rows; y++) { let xo = 0;
+      for (let x = 0; x < cols; x++) { flow[x+y*cols] = p.noise(xo, yo, z) * p.TWO_PI * 2; xo += 0.12; } yo += 0.12; }
+    z += 0.004;
+    for (const pt of parts) {
+      const a = flow[Math.floor(pt.x/SCL) + Math.floor(pt.y/SCL)*cols] || 0;
+      pt.x += Math.cos(a) * pt.ms; pt.y += Math.sin(a) * pt.ms;
+      if (pt.x>d.w){pt.x=0;pt.px=0;} if (pt.x<0){pt.x=d.w;pt.px=d.w;}
+      if (pt.y>d.h){pt.y=0;pt.py=0;} if (pt.y<0){pt.y=d.h;pt.py=d.h;}
+      p.stroke(pt.h % 360, 75, 95, 0.08); p.strokeWeight(1.1);
+      p.line(pt.px, pt.py, pt.x, pt.y); pt.px = pt.x; pt.py = pt.y;
+    }
+    if (reduce && p.frameCount > 200) p.noLoop();
+  };
+}, document.getElementById('prev-flow'));
+
+// --- 03 ライフゲーム ---
+new p5((p) => {
+  let g, age, cols, rows, d; const R = 6;
+  const m2 = (c, r) => { let a = new Array(c); for (let i=0;i<c;i++) a[i]=new Array(r).fill(0); return a; };
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-life'));
+    p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
+    p.frameRate(10); cols = Math.floor(d.w/R); rows = Math.floor(d.h/R);
+    g = m2(cols, rows); age = m2(cols, rows);
+    for (let i=0;i<cols;i++) for (let j=0;j<rows;j++) g[i][j] = Math.floor(p.random(2));
+  };
+  p.draw = () => {
+    p.background(230, 30, 7); p.noStroke();
+    for (let i=0;i<cols;i++) for (let j=0;j<rows;j++) if (g[i][j]===1) {
+      p.fill((180 + age[i][j]*4) % 360, 80, 95); p.rect(i*R, j*R, R-1, R-1);
+    }
+    let nx = m2(cols, rows);
+    for (let i=0;i<cols;i++) for (let j=0;j<rows;j++) {
+      let n=0; for (let a=-1;a<=1;a++) for (let b=-1;b<=1;b++) n += g[(i+a+cols)%cols][(j+b+rows)%rows];
+      n -= g[i][j]; const s = g[i][j];
+      if (s===0 && n===3) { nx[i][j]=1; age[i][j]=0; }
+      else if (s===1 && (n<2||n>3)) { nx[i][j]=0; age[i][j]=0; }
+      else { nx[i][j]=s; if (s===1) age[i][j]++; }
+    }
+    g = nx;
+    if (reduce && p.frameCount > 60) p.noLoop();
+  };
+}, document.getElementById('prev-life'));
+
+// --- 04 再帰の木 ---
+new p5((p) => {
+  let d, ang = 25;
+  const branch = (len) => {
+    p.stroke(p.map(len, 4, 70, 110, 30), 70, 80); p.strokeWeight(p.map(len, 4, 70, 0.8, 3));
+    p.line(0, 0, 0, -len); p.translate(0, -len);
+    if (len > 4) {
+      p.push(); p.rotate(p.radians(ang)); branch(len * 0.67); p.pop();
+      p.push(); p.rotate(p.radians(-ang)); branch(len * 0.67); p.pop();
+    } else { p.noStroke(); p.fill(p.random(80,140), 70, 90, 70); p.circle(0,0,p.random(2,4)); }
+  };
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-tree'));
+    p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
+  };
+  p.draw = () => {
+    p.background(220, 30, 9);
+    ang = 25 + Math.sin(p.frameCount * 0.02) * 8 + p.noise(p.frameCount * 0.01) * 10;
+    p.push(); p.translate(d.w/2, d.h); branch(d.h * 0.32); p.pop();
+    if (reduce && p.frameCount > 150) p.noLoop();
+  };
+}, document.getElementById('prev-tree'));
+</script>
+</body>
+</html>

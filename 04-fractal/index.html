@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fractal Tree — p5.js art</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0a0f0a; overflow: hidden; }
+  a.back {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px; color: #dfeede; text-decoration: none;
+    background: rgba(10,16,10,0.55); backdrop-filter: blur(6px);
+    padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+  }
+  a.back:hover { background: rgba(20,40,20,0.7); }
+  .hint {
+    position: fixed; bottom: 14px; left: 14px; z-index: 10;
+    font-family: -apple-system, sans-serif; font-size: 12px; color: #5a7a5a;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<a class="back" href="../index.html">&larr; ギャラリーに戻る</a>
+<div class="hint">風に揺れる再帰の木 / s キーで画像保存</div>
+<script>
+// ===== 04: Fractal Tree =====
+// 「枝を1本描いて、その先から少し小さい枝を2本描く」を再帰で繰り返す。
+// 短いコードから自己相似の複雑な形が生まれる。noiseとsinで風に揺らした。
+let angle = 25;
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  colorMode(HSB, 360, 100, 100, 100);
+}
+function draw() {
+  background(220, 30, 10);
+  angle = 25 + sin(frameCount * 0.02) * 8 + noise(frameCount * 0.01) * 10;
+  translate(width / 2, height);
+  branch(min(width, height) * 0.26);
+}
+function branch(len) {
+  stroke(map(len, 5, 150, 110, 30), 70, 80);   // 太い幹=オレンジ → 枝先=黄緑
+  strokeWeight(map(len, 5, 150, 1, 6));
+  line(0, 0, 0, -len);
+  translate(0, -len);
+  if (len > 5) {
+    push(); rotate(radians(angle)); branch(len * 0.67); pop();
+    push(); rotate(radians(-angle)); branch(len * 0.67); pop();
+  } else {
+    noStroke();
+    fill(random(80, 140), 70, 90, 70);          // 枝先に葉
+    circle(0, 0, random(3, 7));
+  }
+}
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+function keyPressed() { if (key === 's') saveCanvas('fractal_tree', 'png'); }
+</script>
+</body>
+</html>

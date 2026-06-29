@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow Field — p5.js art</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0d0b14; overflow: hidden; }
+  .ui {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px; color: #e8e3f0;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .ui a, .ui button {
+    background: rgba(20,16,32,0.55); backdrop-filter: blur(6px);
+    padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+    color: #e8e3f0; text-decoration: none; font-size: 13px; cursor: pointer;
+  }
+  .ui a:hover, .ui button:hover { background: rgba(58,45,92,0.7); }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<div class="ui">
+  <a href="../index.html">&larr; ギャラリーに戻る</a>
+  <button onclick="reseed()">パターンを変える</button>
+</div>
+<script>
+// ===== 02: Flow Field =====
+// noise() で作った滑らかな「流れ場」に沿って粒子が動く。
+// 隣り合う粒子が似た向きに進むので、川のような流れが生まれる。
+let particles = [];
+const NUM = 1500;
+const SCL = 18;
+let cols, rows, flow = [], zoff = 0, palette = [];
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  cols = floor(width / SCL) + 1;
+  rows = floor(height / SCL) + 1;
+  reseed();
+}
+function reseed() {
+  noiseSeed(floor(random(100000)));
+  colorMode(HSB, 360, 100, 100, 1);
+  const base = random(360);
+  palette = [];
+  for (let i = 0; i < 5; i++) palette.push(color((base + i * 22) % 360, random(50, 85), random(70, 100)));
+  background(8, 30, 8);
+  particles = [];
+  for (let i = 0; i < NUM; i++) particles.push(new Particle());
+  zoff = 0;
+}
+function draw() {
+  let yoff = 0;
+  for (let y = 0; y < rows; y++) {
+    let xoff = 0;
+    for (let x = 0; x < cols; x++) {
+      const a = noise(xoff, yoff, zoff) * TWO_PI * 2;
+      flow[x + y * cols] = p5.Vector.fromAngle(a);
+      xoff += 0.1;
+    }
+    yoff += 0.1;
+  }
+  zoff += 0.003;
+  for (const p of particles) { p.follow(flow); p.update(); p.edges(); p.show(); }
+}
+class Particle {
+  constructor() {
+    this.pos = createVector(random(width), random(height));
+    this.vel = createVector(0, 0);
+    this.acc = createVector(0, 0);
+    this.maxSpeed = random(1.5, 3.5);
+    this.prev = this.pos.copy();
+    this.col = random(palette);
+  }
+  follow(f) { const v = f[floor(this.pos.x/SCL) + floor(this.pos.y/SCL)*cols]; if (v) this.acc.add(v); }
+  update() { this.vel.add(this.acc); this.vel.limit(this.maxSpeed); this.pos.add(this.vel); this.acc.mult(0); }
+  show() {
+    stroke(hue(this.col), saturation(this.col), brightness(this.col), 0.06);
+    strokeWeight(1.4);
+    line(this.prev.x, this.prev.y, this.pos.x, this.pos.y);
+    this.prev = this.pos.copy();
+  }
+  edges() {
+    let w = false;
+    if (this.pos.x > width) { this.pos.x = 0; w = true; }
+    if (this.pos.x < 0) { this.pos.x = width; w = true; }
+    if (this.pos.y > height) { this.pos.y = 0; w = true; }
+    if (this.pos.y < 0) { this.pos.y = height; w = true; }
+    if (w) this.prev = this.pos.copy();
+  }
+}
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  cols = floor(width / SCL) + 1; rows = floor(height / SCL) + 1; reseed();
+}
+function keyPressed() { if (key === 's') saveCanvas('flowfield', 'png'); }
+</script>
+</body>
+</html>
