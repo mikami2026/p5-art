@@ -102,7 +102,7 @@
     <p class="eyebrow">Generative Art · p5.js</p>
     <h1>規則が<br>形になる<span class="alt">。</span></h1>
     <p class="lede">単純なルールから複雑さが生まれる瞬間を集めた、ブラウザで動かせる小品集。
-      noise・セルオートマトン・再帰という、生成アートの異なる原理をひとつずつ手で組みました。</p>
+      noise・オートマトン・再帰・群知能・連続CA・定常波——生成アートの異なる原理を、ひとつずつ手で組みました。</p>
   </header>
 
   <main class="grid">
@@ -139,6 +139,42 @@
       <h2>再帰の木<span class="en">Fractal Tree</span></h2>
       <p class="tag">Recursion</p>
       <p class="desc">枝が自分自身を呼んで枝分かれする。短いコードから自己相似の木が育つ。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="05-physarum/index.html">
+      <span class="num">05</span>
+      <div class="preview" id="prev-slime"></div>
+      <h2>粘菌<span class="en">Physarum</span></h2>
+      <p class="tag">Swarm Intelligence</p>
+      <p class="desc">2万の粒子が「フェロモンを置き、濃い方へ曲がる」だけで、血管のような輸送網が自己組織化する。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="06-growth/index.html">
+      <span class="num">06</span>
+      <div class="preview" id="prev-growth"></div>
+      <h2>殖える線<span class="en">Differential Growth</span></h2>
+      <p class="tag">Morphogenesis</p>
+      <p class="desc">1本の輪の上で点が「増える・反発する」を繰り返し、脳のしわやサンゴのような襞に折り畳まれていく。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="07-lenia/index.html">
+      <span class="num">07</span>
+      <div class="preview" id="prev-lenia"></div>
+      <h2>レニア<span class="en">Lenia</span></h2>
+      <p class="tag">Continuous CA</p>
+      <p class="desc">ライフゲームの生死を連続値に、時間を滑らかにすると、ノイズの海から細胞のような「生き物」が析出して泳ぐ。</p>
+      <span class="open">開く</span>
+    </a>
+
+    <a class="card" href="08-chladni/index.html">
+      <span class="num">08</span>
+      <div class="preview" id="prev-chladni"></div>
+      <h2>砂の共鳴<span class="en">Chladni Patterns</span></h2>
+      <p class="tag">Standing Wave</p>
+      <p class="desc">振動する板の上で、砂は「揺れない場所」にだけ集まる。周波数が漂うと、模様は絶えず生まれ変わる。</p>
       <span class="open">開く</span>
     </a>
   </main>
@@ -257,6 +293,286 @@ new p5((p) => {
     if (reduce && p.frameCount > 150) p.noLoop();
   };
 }, document.getElementById('prev-tree'));
+
+// --- 05 粘菌 ---
+new p5((p) => {
+  const S = 3, N = 3500, SA = 0.45, TA = 0.35, SD = 7, DECAY = 0.93, DEP = 5;
+  let d, cols, rows, trail, buf, ax, ay, ah, g, lut, lutScale;
+  const sense = (x, y, a) => {
+    let sx = ((x + Math.cos(a) * SD) | 0) % cols; if (sx < 0) sx += cols;
+    let sy = ((y + Math.sin(a) * SD) | 0) % rows; if (sy < 0) sy += rows;
+    return trail[sx + sy * cols];
+  };
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-slime'));
+    p.createCanvas(d.w, d.h); p.pixelDensity(1);
+    cols = Math.max(4, Math.floor(d.w / S)); rows = Math.max(4, Math.floor(d.h / S));
+    trail = new Float32Array(cols * rows); buf = new Float32Array(cols * rows);
+    g = p.createGraphics(cols, rows); g.pixelDensity(1);
+    ax = new Float32Array(N); ay = new Float32Array(N); ah = new Float32Array(N);
+    lutScale = 34 / (N * DEP / (cols * rows * (1 - DECAY)));
+    for (let i = 0; i < N; i++) {
+      const a = p.random(p.TWO_PI), r = Math.min(cols, rows) * 0.3;
+      ax[i] = cols / 2 + Math.cos(a) * r; ay[i] = rows / 2 + Math.sin(a) * r;
+      ah[i] = a + p.HALF_PI;
+    }
+    // 濃度→色(暗紺→シグナル色→白)のLUT
+    p.colorMode(p.HSB, 360, 100, 100);
+    const c0 = p.color(230, 50, 6), c1 = p.color(168, 70, 85), c2 = p.color(180, 10, 100);
+    lut = new Uint8Array(256 * 3);
+    for (let i = 0; i < 256; i++) {
+      const t = Math.pow(i / 255, 0.6);
+      const c = t < 0.55 ? p.lerpColor(c0, c1, t / 0.55) : p.lerpColor(c1, c2, (t - 0.55) / 0.45);
+      lut[i*3] = p.red(c); lut[i*3+1] = p.green(c); lut[i*3+2] = p.blue(c);
+    }
+    p.colorMode(p.RGB, 255);
+  };
+  p.draw = () => {
+    for (let i = 0; i < N; i++) {
+      let x = ax[i], y = ay[i], h = ah[i];
+      const F = sense(x, y, h), L = sense(x, y, h - SA), R = sense(x, y, h + SA);
+      if (F >= L && F >= R) {} else if (L > R) h -= TA; else if (R > L) h += TA;
+      else h += (Math.random() < 0.5 ? -1 : 1) * TA;
+      x += Math.cos(h) * 1.1; y += Math.sin(h) * 1.1;
+      if (x < 0) x += cols; else if (x >= cols) x -= cols;
+      if (y < 0) y += rows; else if (y >= rows) y -= rows;
+      trail[(x|0) + (y|0) * cols] += DEP;
+      ax[i] = x; ay[i] = y; ah[i] = h;
+    }
+    for (let y = 0; y < rows; y++) {
+      const yu = ((y-1+rows)%rows)*cols, yc = y*cols, yd = ((y+1)%rows)*cols;
+      for (let x = 0; x < cols; x++) {
+        const xl = (x-1+cols)%cols, xr = (x+1)%cols;
+        buf[yc+x] = ((trail[yu+xl]+trail[yu+x]+trail[yu+xr]
+                    + trail[yc+xl]+trail[yc+x]+trail[yc+xr]
+                    + trail[yd+xl]+trail[yd+x]+trail[yd+xr]) / 9) * DECAY;
+      }
+    }
+    const t2 = trail; trail = buf; buf = t2;
+    g.loadPixels();
+    const px = g.pixels;
+    for (let i = 0, n = trail.length; i < n; i++) {
+      let v = (trail[i] * lutScale) | 0; if (v > 255) v = 255;
+      const j = i*4, k = v*3;
+      px[j] = lut[k]; px[j+1] = lut[k+1]; px[j+2] = lut[k+2]; px[j+3] = 255;
+    }
+    g.updatePixels();
+    p.image(g, 0, 0, d.w, d.h);
+    if (reduce && p.frameCount > 150) p.noLoop();
+  };
+}, document.getElementById('prev-slime'));
+
+// --- 06 殖える線 ---
+new p5((p) => {
+  const MAXN = 1400, R = 8, R2 = R * R, ATT = 0.12, REP = 1.1, SPLIT = 6.8, DAMP = 0.8;
+  let d, loop = [], total = 0;
+  const mk = (x, y) => ({ x, y, vx: 0, vy: 0 });
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-growth'));
+    p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
+    p.background(270, 45, 6);
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * p.TWO_PI;
+      loop.push(mk(d.w / 2 + Math.cos(a) * 10, d.h / 2 + Math.sin(a) * 10));
+    }
+    total = 30;
+  };
+  p.draw = () => {
+    const cell = R, gw = Math.ceil(d.w / cell), gh = Math.ceil(d.h / cell);
+    const grid = new Array(gw * gh);
+    for (const nd of loop) {
+      const gx = p.constrain((nd.x / cell) | 0, 0, gw - 1), gy = p.constrain((nd.y / cell) | 0, 0, gh - 1);
+      const k = gx + gy * gw;
+      (grid[k] || (grid[k] = [])).push(nd);
+    }
+    const n = loop.length, m = 12;
+    for (let i = 0; i < n; i++) {
+      const nd = loop[i], prev = loop[(i - 1 + n) % n], next = loop[(i + 1) % n];
+      let fx = ((prev.x + next.x) / 2 - nd.x) * ATT, fy = ((prev.y + next.y) / 2 - nd.y) * ATT;
+      const gx = p.constrain((nd.x / cell) | 0, 0, gw - 1), gy = p.constrain((nd.y / cell) | 0, 0, gh - 1);
+      for (let cy = Math.max(0, gy - 1); cy <= Math.min(gh - 1, gy + 1); cy++)
+        for (let cx = Math.max(0, gx - 1); cx <= Math.min(gw - 1, gx + 1); cx++) {
+          const bin = grid[cx + cy * gw];
+          if (!bin) continue;
+          for (const o of bin) {
+            if (o === nd || o === prev || o === next) continue;
+            const dx = nd.x - o.x, dy = nd.y - o.y, d2 = dx * dx + dy * dy;
+            if (d2 >= R2 || d2 < 0.0001) continue;
+            const dd = Math.sqrt(d2), f = (1 - dd / R) * REP / dd;
+            fx += dx * f; fy += dy * f;
+          }
+        }
+      if (nd.x < m) fx += (m - nd.x) * 0.02;
+      if (nd.x > d.w - m) fx -= (nd.x - d.w + m) * 0.02;
+      if (nd.y < m) fy += (m - nd.y) * 0.02;
+      if (nd.y > d.h - m) fy -= (nd.y - d.h + m) * 0.02;
+      nd.vx = (nd.vx + fx) * DAMP; nd.vy = (nd.vy + fy) * DAMP;
+      const sp = Math.sqrt(nd.vx * nd.vx + nd.vy * nd.vy);
+      if (sp > 1.2) { nd.vx *= 1.2 / sp; nd.vy *= 1.2 / sp; }
+    }
+    for (const nd of loop) { nd.x += nd.vx; nd.y += nd.vy; }
+    const s2 = SPLIT * SPLIT;
+    for (let i = loop.length - 1; i >= 0 && total < MAXN; i--) {
+      const a = loop[i], b = loop[(i + 1) % loop.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (dx * dx + dy * dy > s2) {
+        loop.splice(i + 1, 0, mk((a.x + b.x) / 2 + p.random(-1, 1), (a.y + b.y) / 2 + p.random(-1, 1)));
+        total++;
+      }
+    }
+    if (total < MAXN) {
+      const i = (p.random(loop.length)) | 0;
+      const a = loop[i], b = loop[(i + 1) % loop.length];
+      loop.splice(i + 1, 0, mk((a.x + b.x) / 2 + p.random(-1, 1), (a.y + b.y) / 2 + p.random(-1, 1)));
+      total++;
+    }
+    p.stroke((300 + p.frameCount * 0.1) % 360, 50, 95, 7);
+    p.strokeWeight(1); p.noFill();
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i], b = loop[(i + 1) % loop.length];
+      p.line(a.x, a.y, b.x, b.y);
+    }
+    if (reduce && p.frameCount > 150) p.noLoop();
+  };
+}, document.getElementById('prev-growth'));
+
+// --- 07 レニア ---
+new p5((p) => {
+  const S = 3, R = 6, MU = 0.15, SIG = 0.017, DT = 0.1;
+  let d, W, H, PW, PH, A, B, Koff, Kw, g, lut;
+  const fillMargins = (F) => {
+    for (let py = 0; py < PH; py++) {
+      const wy = (((py - R) % H) + H) % H, rowI = (wy + R) * PW, rowP = py * PW;
+      const inner = (py >= R && py < R + H);
+      for (let px = 0; px < PW; px++) {
+        if (inner && px >= R && px < R + W) { px = R + W - 1; continue; }
+        const wx = (((px - R) % W) + W) % W;
+        F[rowP + px] = F[rowI + wx + R];
+      }
+    }
+  };
+  const soup = () => {
+    A.fill(0);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      if (Math.random() < 0.5) A[(y + R) * PW + (x + R)] = Math.random();
+  };
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-lenia'));
+    p.createCanvas(d.w, d.h); p.pixelDensity(1);
+    W = Math.max(24, Math.floor(d.w / S)); H = Math.max(24, Math.floor(d.h / S));
+    PW = W + 2 * R; PH = H + 2 * R;
+    A = new Float32Array(PW * PH); B = new Float32Array(PW * PH);
+    g = p.createGraphics(W, H); g.pixelDensity(1);
+    const offs = [], ws = []; let sum = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const r = Math.sqrt(dx * dx + dy * dy) / R;
+      if (r === 0 || r > 1) continue;
+      const w = Math.exp(-Math.pow((r - 0.5) / 0.15, 2) / 2);
+      offs.push(dy * PW + dx); ws.push(w); sum += w;
+    }
+    Koff = new Int32Array(offs); Kw = new Float32Array(ws.map(w => w / sum));
+    // 深海色のLUT
+    p.colorMode(p.HSB, 360, 100, 100);
+    const c0 = p.color(225, 65, 6), c1 = p.color(190, 80, 75), c2 = p.color(160, 12, 100);
+    lut = new Uint8Array(256 * 3);
+    for (let i = 0; i < 256; i++) {
+      const t = Math.pow(i / 255, 0.8);
+      const c = t < 0.6 ? p.lerpColor(c0, c1, t / 0.6) : p.lerpColor(c1, c2, (t - 0.6) / 0.4);
+      lut[i*3] = p.red(c); lut[i*3+1] = p.green(c); lut[i*3+2] = p.blue(c);
+    }
+    p.colorMode(p.RGB, 255);
+    soup();
+  };
+  p.draw = () => {
+    fillMargins(A);
+    const ts2 = 2 * SIG * SIG, nK = Koff.length;
+    for (let y = 0; y < H; y++) {
+      const base = (y + R) * PW + R;
+      for (let x = 0; x < W; x++) {
+        const c = base + x;
+        let u = 0;
+        for (let k = 0; k < nK; k++) u += A[c + Koff[k]] * Kw[k];
+        const dd = u - MU, grow = 2 * Math.exp(-dd * dd / ts2) - 1;
+        let v = A[c] + DT * grow;
+        B[c] = v < 0 ? 0 : v > 1 ? 1 : v;
+      }
+    }
+    const t = A; A = B; B = t;
+    g.loadPixels();
+    const px = g.pixels;
+    for (let y = 0; y < H; y++) {
+      const base = (y + R) * PW + R;
+      for (let x = 0; x < W; x++) {
+        let v = (A[base + x] * 255) | 0; if (v > 255) v = 255;
+        const j = (x + y * W) * 4, k = v * 3;
+        px[j] = lut[k]; px[j+1] = lut[k+1]; px[j+2] = lut[k+2]; px[j+3] = 255;
+      }
+    }
+    g.updatePixels();
+    p.image(g, 0, 0, d.w, d.h);
+    if (p.frameCount % 60 === 0) {
+      let s = 0;
+      for (let y = 0; y < H; y++) { const base = (y + R) * PW + R; for (let x = 0; x < W; x++) s += A[base + x]; }
+      const mean = s / (W * H);
+      if (mean < 0.004 || mean > 0.45) soup();
+    }
+    if (reduce && p.frameCount > 150) p.noLoop();
+  };
+}, document.getElementById('prev-lenia'));
+
+// --- 08 砂の共鳴 ---
+new p5((p) => {
+  const N = 3500, HOLD = 170;
+  const COLS = ['rgba(244,214,150,0.9)', 'rgba(150,224,190,0.9)', 'rgba(186,170,244,0.9)', 'rgba(240,164,150,0.9)'];
+  let d, sx, sy, nMode = 3, mMode = 5, shake = 0, settleT = 0, ci = 0;
+  const pl = (x, y) => {
+    const u = x / d.w, v = y / d.h;
+    return Math.cos(nMode * Math.PI * u) * Math.cos(mMode * Math.PI * v)
+         - Math.cos(mMode * Math.PI * u) * Math.cos(nMode * Math.PI * v);
+  };
+  p.setup = () => {
+    d = sizeOf(document.getElementById('prev-chladni'));
+    p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
+    sx = new Float32Array(N); sy = new Float32Array(N);
+    for (let i = 0; i < N; i++) { sx[i] = p.random(d.w); sy[i] = p.random(d.h); }
+    // fillStyle は直接操作に統一する(p5のfill()キャッシュと混ぜない)
+    p.drawingContext.fillStyle = 'rgb(7,8,12)';
+    p.drawingContext.fillRect(0, 0, d.w, d.h);
+  };
+  p.draw = () => {
+    const fctx = p.drawingContext;
+    fctx.fillStyle = shake > 0 ? 'rgba(7,8,12,0.45)' : 'rgba(7,8,12,0.18)';
+    fctx.fillRect(0, 0, d.w, d.h);
+    if (shake === 0 && ++settleT > HOLD) {
+      const pn = nMode;
+      do { nMode = 1 + (Math.random() * 6 | 0); mMode = 1 + (Math.random() * 6 | 0); }
+      while (nMode === mMode || nMode === pn);
+      shake = 20; settleT = 0; ci = (ci + 1) % COLS.length;
+    }
+    const ctx = p.drawingContext;
+    ctx.fillStyle = COLS[ci];
+    const shaking = shake > 0;
+    for (let i = 0; i < N; i++) {
+      let x = sx[i], y = sy[i];
+      const f0 = Math.abs(pl(x, y));
+      const amp = Math.min(1, f0);
+      const a = Math.random() * 6.2831853;
+      if (shaking) {
+        const step = 2 + amp * 7;
+        x += Math.cos(a) * step; y += Math.sin(a) * step;
+      } else {
+        const step = amp * 2.5 + 0.12;
+        const nx2 = x + Math.cos(a) * step, ny2 = y + Math.sin(a) * step;
+        if (Math.abs(pl(nx2, ny2)) <= f0 || Math.random() < 0.12) { x = nx2; y = ny2; }
+      }
+      if (x < 0 || x >= d.w || y < 0 || y >= d.h) { x = Math.random() * d.w; y = Math.random() * d.h; }
+      sx[i] = x; sy[i] = y;
+      ctx.fillRect(x, y, 1.2, 1.2);
+    }
+    if (shake > 0) shake--;
+    if (reduce && p.frameCount > 150) p.noLoop();
+  };
+}, document.getElementById('prev-chladni'));
 </script>
 </body>
 </html>

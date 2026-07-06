@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physarum — p5.js art</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #07080c; overflow: hidden; }
+  .ui {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px; color: #e8e3f0;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .ui a, .ui button {
+    background: rgba(16,20,32,0.55); backdrop-filter: blur(6px);
+    padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+    color: #e8e3f0; text-decoration: none; font-size: 13px; cursor: pointer;
+  }
+  .ui a:hover, .ui button:hover { background: rgba(45,72,92,0.7); }
+  .hint { opacity: 0.6; }
+  .hud {
+    position: fixed; bottom: 14px; left: 14px; z-index: 10;
+    font-family: "Consolas", monospace; font-size: 11px; line-height: 1.7;
+    color: rgba(232,227,240,0.45); pointer-events: none; white-space: pre;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<div class="ui">
+  <a href="../index.html">&larr; ギャラリーに戻る</a>
+  <button onclick="reseed()">別の個体にする</button>
+  <span class="hint">ドラッグ: 餌を置く / s: 保存</span>
+</div>
+<div class="hud" id="hud"></div>
+<script>
+// ===== 05: Physarum(粘菌)=====
+// 各エージェントの規則は3つだけ。
+//   1. 前方3点のフェロモン濃度を嗅ぐ
+//   2. いちばん濃い方へ少し曲がる
+//   3. 進んだ跡にフェロモンを置く
+// フェロモンは毎フレーム拡散して薄れる。これだけで
+// 本物の粘菌が作るような輸送ネットワークが自己組織化する。
+
+const SCALE = 3;          // 1セル = 3px(低解像度バッファで計算する)
+const NUM = 20000;        // エージェント数
+let cols, rows;
+let trail, buf;           // フェロモン場(拡散用に2枚)
+let ax, ay, ah;           // エージェントの位置と向き
+let g;                    // 低解像度の描画バッファ
+let lut;                  // 濃度→色のルックアップテーブル
+let lutScale;             // 濃度→LUT添字の係数(平衡濃度から自動決定)
+let P;                    // 今の個体のパラメータ
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  initField();
+  reseed();
+}
+
+function initField() {
+  cols = max(4, floor(width / SCALE));
+  rows = max(4, floor(height / SCALE));
+  trail = new Float32Array(cols * rows);
+  buf = new Float32Array(cols * rows);
+  g = createGraphics(cols, rows);
+  g.pixelDensity(1);
+  ax = new Float32Array(NUM);
+  ay = new Float32Array(NUM);
+  ah = new Float32Array(NUM);
+}
+
+// パラメータと初期配置を変えると、まったく別の「個体」が育つ
+function reseed() {
+  P = {
+    sa: random(radians(15), radians(45)),  // センサーを開く角度
+    ta: random(radians(10), radians(40)),  // 一度に曲がれる角度
+    sd: random(4, 14),                     // センサーの距離(遠いほど太い脈になる)
+    speed: random(0.9, 1.6),
+    deposit: random(4, 8),                 // 置くフェロモン量
+    decay: random(0.90, 0.965),            // 薄れる速さ
+  };
+  trail.fill(0);
+  buf.fill(0);
+  makeLut(random(360));
+  // 場全体の平衡平均濃度。平均が薄い網、その約7倍(脈の芯)で白熱するように割り付ける
+  const meanEq = NUM * P.deposit / (cols * rows * (1 - P.decay));
+  lutScale = 34 / meanEq;
+
+  const mode = floor(random(3));           // 0:全面ランダム 1:リング 2:中央から爆発
+  const cx = cols / 2, cy = rows / 2;
+  for (let i = 0; i < NUM; i++) {
+    if (mode === 0) {
+      ax[i] = random(cols); ay[i] = random(rows); ah[i] = random(TWO_PI);
+    } else if (mode === 1) {
+      const a = random(TWO_PI), r = min(cols, rows) * 0.32 + random(-4, 4);
+      ax[i] = cx + cos(a) * r; ay[i] = cy + sin(a) * r;
+      ah[i] = a + PI / 2 + random(-0.5, 0.5);
+    } else {
+      const a = random(TWO_PI);
+      ax[i] = cx + cos(a) * random(3); ay[i] = cy + sin(a) * random(3);
+      ah[i] = a;
+    }
+  }
+  const hud = document.getElementById('hud');
+  if (hud) hud.textContent =
+    `sensor  ${degrees(P.sa).toFixed(0)}°  dist ${P.sd.toFixed(1)}\n` +
+    `turn    ${degrees(P.ta).toFixed(0)}°  speed ${P.speed.toFixed(2)}\n` +
+    `deposit ${P.deposit.toFixed(1)}  decay ${P.decay.toFixed(3)}`;
+}
+
+// 濃度(0..255)→色。暗色→主色→白へ抜けるグラデーションを事前計算しておく
+function makeLut(baseHue) {
+  colorMode(HSB, 360, 100, 100);
+  const c0 = color((baseHue + 240) % 360, 60, 7);   // ほぼ背景の暗色
+  const c1 = color(baseHue % 360, 85, 80);          // 主色
+  const c2 = color((baseHue + 30) % 360, 15, 100);  // 白熱
+  lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = pow(i / 255, 0.6);                    // 淡い部分を持ち上げる
+    const c = t < 0.55 ? lerpColor(c0, c1, t / 0.55) : lerpColor(c1, c2, (t - 0.55) / 0.45);
+    lut[i * 3] = red(c); lut[i * 3 + 1] = green(c); lut[i * 3 + 2] = blue(c);
+  }
+  colorMode(RGB, 255);
+}
+
+function senseAt(x, y, a) {
+  let sx = ((x + Math.cos(a) * P.sd) | 0) % cols; if (sx < 0) sx += cols;
+  let sy = ((y + Math.sin(a) * P.sd) | 0) % rows; if (sy < 0) sy += rows;
+  return trail[sx + sy * cols];
+}
+
+function draw() {
+  // --- 1. エージェント:嗅ぐ → 曲がる → 進む → 置く ---
+  for (let i = 0; i < NUM; i++) {
+    let x = ax[i], y = ay[i], h = ah[i];
+    const F = senseAt(x, y, h);
+    const L = senseAt(x, y, h - P.sa);
+    const R = senseAt(x, y, h + P.sa);
+    if (F >= L && F >= R) { /* まっすぐ */ }
+    else if (L > R) h -= P.ta;
+    else if (R > L) h += P.ta;
+    else h += (Math.random() < 0.5 ? -1 : 1) * P.ta;
+
+    x += Math.cos(h) * P.speed;
+    y += Math.sin(h) * P.speed;
+    if (x < 0) x += cols; else if (x >= cols) x -= cols;
+    if (y < 0) y += rows; else if (y >= rows) y -= rows;
+
+    trail[(x | 0) + (y | 0) * cols] += P.deposit;
+    ax[i] = x; ay[i] = y; ah[i] = h;
+  }
+
+  // --- 餌:ドラッグした場所に強いフェロモンを置く ---
+  if (mouseIsPressed && mouseY > 60) {
+    const mx = (mouseX / SCALE) | 0, my = (mouseY / SCALE) | 0;
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 25) continue;
+      const tx = (mx + dx + cols) % cols, ty = (my + dy + rows) % rows;
+      trail[tx + ty * cols] += 40 * (1 - d2 / 25);
+    }
+  }
+
+  // --- 2. フェロモン場:3x3で拡散して薄れる ---
+  for (let y = 0; y < rows; y++) {
+    const yu = ((y - 1 + rows) % rows) * cols;
+    const yc = y * cols;
+    const yd = ((y + 1) % rows) * cols;
+    for (let x = 0; x < cols; x++) {
+      const xl = (x - 1 + cols) % cols, xr = (x + 1) % cols;
+      const s = trail[yu + xl] + trail[yu + x] + trail[yu + xr]
+              + trail[yc + xl] + trail[yc + x] + trail[yc + xr]
+              + trail[yd + xl] + trail[yd + x] + trail[yd + xr];
+      buf[yc + x] = (s / 9) * P.decay;
+    }
+  }
+  const tmp = trail; trail = buf; buf = tmp;
+
+  // --- 3. 濃度をLUTで色に変換して拡大表示 ---
+  g.loadPixels();
+  const px = g.pixels;
+  for (let i = 0, n = trail.length; i < n; i++) {
+    let v = (trail[i] * lutScale) | 0;
+    if (v > 255) v = 255;
+    const j = i * 4, k = v * 3;
+    px[j] = lut[k]; px[j + 1] = lut[k + 1]; px[j + 2] = lut[k + 2]; px[j + 3] = 255;
+  }
+  g.updatePixels();
+  image(g, 0, 0, width, height);
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  initField();
+  reseed();
+}
+function keyPressed() { if (key === 's') saveCanvas('physarum', 'png'); }
+</script>
+</body>
+</html>

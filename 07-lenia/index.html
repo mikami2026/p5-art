@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lenia — p5.js art</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #04070d; overflow: hidden; }
+  .ui {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px; color: #e6edf5;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .ui a, .ui button {
+    background: rgba(12,20,34,0.55); backdrop-filter: blur(6px);
+    padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+    color: #e6edf5; text-decoration: none; font-size: 13px; cursor: pointer;
+  }
+  .ui a:hover, .ui button:hover { background: rgba(30,68,96,0.7); }
+  .hint { opacity: 0.6; }
+  .hud {
+    position: fixed; bottom: 14px; left: 14px; z-index: 10;
+    font-family: "Consolas", monospace; font-size: 11px; line-height: 1.7;
+    color: rgba(230,237,245,0.45); pointer-events: none; white-space: pre;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<div class="ui">
+  <a href="../index.html">&larr; ギャラリーに戻る</a>
+  <button onclick="reseed()">別の宇宙にする</button>
+  <span class="hint">ドラッグ: 命を注ぐ / s: 保存</span>
+</div>
+<div class="hud" id="hud"></div>
+<script>
+// ===== 07: Lenia(連続ライフゲーム)=====
+// ライフゲームの拡張。セルの生死(0/1)を連続値(0..1)に、
+// 近傍8マスをドーナツ型のぼやけた近傍に、時間も滑らかにすると、
+// 「細胞」のような塊が生まれ、泳ぎ、分裂し、死んでいく。
+//   1. 各セルの周りをドーナツ型カーネルで重み付き平均する(=近傍の密度 u)
+//   2. u が心地よい範囲(μ±σ)なら育ち、外れると衰える
+// 全滅した宇宙は自動で作り直される。
+
+const GRIDW = 220;        // 計算格子の横幅の目安(画面はこれを拡大表示)
+let SCALE, W, H, R, PW, PH;
+let A, B;                 // 場(トーラス接続のため余白つき2枚)
+let Koff, Kw;             // ドーナツカーネルのオフセットと重み
+let g, lut, P;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  initField();
+  reseed();
+}
+
+function initField() {
+  SCALE = max(3, ceil(width / GRIDW));
+  W = max(32, floor(width / SCALE));
+  H = max(32, floor(height / SCALE));
+  R = 8;                  // カーネル半径(セル単位)
+  PW = W + 2 * R; PH = H + 2 * R;
+  A = new Float32Array(PW * PH);
+  B = new Float32Array(PW * PH);
+  g = createGraphics(W, H); g.pixelDensity(1);
+  // ドーナツ型カーネル:半径の中ほど(r=0.5R)が最も重い
+  const offs = [], ws = [];
+  let sum = 0;
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const r = Math.sqrt(dx * dx + dy * dy) / R;
+    if (r === 0 || r > 1) continue;
+    const w = Math.exp(-Math.pow((r - 0.5) / 0.15, 2) / 2);
+    offs.push(dy * PW + dx); ws.push(w); sum += w;
+  }
+  Koff = new Int32Array(offs);
+  Kw = new Float32Array(ws.map(w => w / sum));
+}
+
+function reseed() {
+  P = {
+    mu: random(0.12, 0.17),      // 生きやすい近傍密度の中心
+    sigma: random(0.014, 0.021), // その許容幅(狭いほど気難しい生き物になる)
+    dt: 0.1,
+  };
+  A.fill(0);
+  B.fill(0);
+  makeLut(random(360));
+  // 命の種:原始スープ(一様ノイズ)。数秒で生き残れる密度の場所だけが「生き物」に析出する
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (random(1) < 0.5) A[(y + R) * PW + (x + R)] = random(1);
+  }
+  updateHud();
+}
+
+function blob(cx, cy, rad, amp) {
+  const s2 = 2 * (rad / 2) * (rad / 2);
+  const r = ceil(rad * 1.6);
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    let x = (cx + dx) | 0; x = ((x % W) + W) % W;
+    let y = (cy + dy) | 0; y = ((y % H) + H) % H;
+    const i = (y + R) * PW + (x + R);
+    const v = A[i] + amp * Math.exp(-(dx * dx + dy * dy) / s2);
+    A[i] = v > 1 ? 1 : v;
+  }
+}
+
+// 余白にトーラス(上下左右つながった世界)のコピーを書き込む
+function fillMargins(F) {
+  for (let py = 0; py < PH; py++) {
+    const wy = (((py - R) % H) + H) % H;
+    const rowI = (wy + R) * PW;
+    const rowP = py * PW;
+    const inner = (py >= R && py < R + H);
+    for (let px = 0; px < PW; px++) {
+      if (inner && px >= R && px < R + W) { px = R + W - 1; continue; }
+      const wx = (((px - R) % W) + W) % W;
+      F[rowP + px] = F[rowI + wx + R];
+    }
+  }
+}
+
+function makeLut(baseHue) {
+  colorMode(HSB, 360, 100, 100);
+  const c0 = color((baseHue + 220) % 360, 65, 6);
+  const c1 = color(baseHue % 360, 80, 75);
+  const c2 = color((baseHue + 40) % 360, 12, 100);
+  lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = Math.pow(i / 255, 0.8);
+    const c = t < 0.6 ? lerpColor(c0, c1, t / 0.6) : lerpColor(c1, c2, (t - 0.6) / 0.4);
+    lut[i * 3] = red(c); lut[i * 3 + 1] = green(c); lut[i * 3 + 2] = blue(c);
+  }
+  colorMode(RGB, 255);
+}
+
+function draw() {
+  // 命を注ぐ(ドラッグ)
+  if (mouseIsPressed && mouseY > 60) {
+    blob(mouseX / SCALE, mouseY / SCALE, R * 0.8, 0.9);
+  }
+
+  fillMargins(A);
+
+  // --- Lenia 本体:畳み込み → 成長関数 → 少しだけ時間を進める ---
+  const mu = P.mu, ts2 = 2 * P.sigma * P.sigma, dt = P.dt, nK = Koff.length;
+  for (let y = 0; y < H; y++) {
+    const base = (y + R) * PW + R;
+    for (let x = 0; x < W; x++) {
+      const c = base + x;
+      let u = 0;
+      for (let k = 0; k < nK; k++) u += A[c + Koff[k]] * Kw[k];
+      const d = u - mu;
+      const grow = 2 * Math.exp(-d * d / ts2) - 1;
+      let v = A[c] + dt * grow;
+      B[c] = v < 0 ? 0 : v > 1 ? 1 : v;
+    }
+  }
+  const tmp = A; A = B; B = tmp;
+
+  // --- 描画 ---
+  g.loadPixels();
+  const px = g.pixels;
+  for (let y = 0; y < H; y++) {
+    const base = (y + R) * PW + R;
+    for (let x = 0; x < W; x++) {
+      let v = (A[base + x] * 255) | 0;
+      if (v > 255) v = 255;
+      const j = (x + y * W) * 4, k = v * 3;
+      px[j] = lut[k]; px[j + 1] = lut[k + 1]; px[j + 2] = lut[k + 2]; px[j + 3] = 255;
+    }
+  }
+  g.updatePixels();
+  image(g, 0, 0, width, height);
+
+  // --- 全滅・飽和したら次の宇宙へ ---
+  if (frameCount % 60 === 0) {
+    let sum = 0;
+    for (let y = 0; y < H; y++) {
+      const base = (y + R) * PW + R;
+      for (let x = 0; x < W; x++) sum += A[base + x];
+    }
+    const mean = sum / (W * H);
+    if (mean < 0.004 || mean > 0.45) reseed();
+    else updateHud(mean);
+  }
+}
+
+function updateHud(mean) {
+  const hud = document.getElementById('hud');
+  if (hud) hud.textContent =
+    `growth  μ ${P.mu.toFixed(3)}  σ ${P.sigma.toFixed(4)}\n` +
+    `kernel  R ${R}  grid ${W}x${H}  dt ${P.dt}\n` +
+    `mass    ${mean === undefined ? '--' : (mean * 100).toFixed(1) + '%'}`;
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  initField();
+  reseed();
+}
+function keyPressed() { if (key === 's') saveCanvas('lenia', 'png'); }
+</script>
+</body>
+</html>

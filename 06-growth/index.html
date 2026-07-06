@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Differential Growth — p5.js art</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #08070c; overflow: hidden; }
+  .ui {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px; color: #ece8f2;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .ui a, .ui button {
+    background: rgba(20,16,30,0.55); backdrop-filter: blur(6px);
+    padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+    color: #ece8f2; text-decoration: none; font-size: 13px; cursor: pointer;
+  }
+  .ui a:hover, .ui button:hover { background: rgba(72,52,96,0.7); }
+  .hint { opacity: 0.6; }
+  .hud {
+    position: fixed; bottom: 14px; left: 14px; z-index: 10;
+    font-family: "Consolas", monospace; font-size: 11px; line-height: 1.7;
+    color: rgba(236,232,242,0.45); pointer-events: none; white-space: pre;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+</head>
+<body>
+<div class="ui">
+  <a href="../index.html">&larr; ギャラリーに戻る</a>
+  <button onclick="reseed()">育て直す</button>
+  <span class="hint">クリック: 芽を植える / s: 保存</span>
+</div>
+<div class="hud" id="hud"></div>
+<script>
+// ===== 06: Differential Growth(分化成長)=====
+// 閉じた輪の上の点たちの規則は3つだけ。
+//   1. 隣の点とはバネでつながる(離れすぎない)
+//   2. 隣以外の近い点からは反発する(混みすぎない)
+//   3. 辺のどこかに新しい点が生まれ続ける
+// 増える一方の周長が限られた場所に押し込められて、
+// 脳のしわやサンゴのような襞(ひだ)が勝手に折り畳まれていく。
+// 毎フレーム薄いインクで描き重ねるので、成長の履歴が地層のように残る。
+
+const MAXN = 7000;        // 点の総数の上限(達すると成長が「成熟」して止まる)
+let loops = [];           // 閉曲線のリスト(クリックで増やせる)
+let total = 0;
+let P, baseHue;
+
+const mk = (x, y) => ({ x, y, vx: 0, vy: 0 });
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  colorMode(HSB, 360, 100, 100, 100);
+  reseed();
+}
+
+function reseed() {
+  P = {
+    R: random(9, 15),                  // 反発が届く半径(=襞の太さが決まる)
+    attract: random(0.08, 0.16),       // 隣に引き寄せられる強さ
+    repulse: random(0.9, 1.6),         // 他人を押しのける強さ
+    inject: random(1.2, 3.0),          // 1フレームに生まれる点の期待値(成長速度)
+    damp: 0.8,
+  };
+  P.split = P.R * random(0.75, 0.95);  // これ以上伸びた辺は分裂する
+  baseHue = random(360);
+  background((baseHue + 200) % 360, 45, 5);
+  loops = []; total = 0;
+  plant(width / 2, height / 2);
+  updateHud();
+}
+
+function plant(x, y) {
+  if (total > MAXN - 40) return;
+  const n = 36, r = 14, loop = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TWO_PI;
+    loop.push(mk(x + cos(a) * r, y + sin(a) * r));
+  }
+  loops.push(loop); total += n;
+}
+
+function draw() {
+  // --- 空間ハッシュ:近くの点だけを反発の相手にする ---
+  const cell = P.R, R2 = P.R * P.R;
+  const gw = ceil(width / cell), gh = ceil(height / cell);
+  const grid = new Array(gw * gh);
+  for (const loop of loops) for (const nd of loop) {
+    const gx = constrain((nd.x / cell) | 0, 0, gw - 1);
+    const gy = constrain((nd.y / cell) | 0, 0, gh - 1);
+    const k = gx + gy * gw;
+    (grid[k] || (grid[k] = [])).push(nd);
+  }
+
+  // --- 力を計算して動かす ---
+  const m = 30;  // 画面端の余白
+  for (const loop of loops) {
+    const n = loop.length;
+    for (let i = 0; i < n; i++) {
+      const nd = loop[i], prev = loop[(i - 1 + n) % n], next = loop[(i + 1) % n];
+      // 1. 隣2点の中点へ(バネ)
+      let fx = ((prev.x + next.x) / 2 - nd.x) * P.attract;
+      let fy = ((prev.y + next.y) / 2 - nd.y) * P.attract;
+      // 2. 近い他人から離れる
+      const gx = constrain((nd.x / cell) | 0, 0, gw - 1);
+      const gy = constrain((nd.y / cell) | 0, 0, gh - 1);
+      for (let cy = max(0, gy - 1); cy <= min(gh - 1, gy + 1); cy++)
+        for (let cx = max(0, gx - 1); cx <= min(gw - 1, gx + 1); cx++) {
+          const bin = grid[cx + cy * gw];
+          if (!bin) continue;
+          for (const o of bin) {
+            if (o === nd || o === prev || o === next) continue;
+            const dx = nd.x - o.x, dy = nd.y - o.y, d2 = dx * dx + dy * dy;
+            if (d2 >= R2 || d2 < 0.0001) continue;
+            const d = Math.sqrt(d2), f = (1 - d / P.R) * P.repulse / d;
+            fx += dx * f; fy += dy * f;
+          }
+        }
+      // 画面端では内側へ押し戻す
+      if (nd.x < m) fx += (m - nd.x) * 0.02;
+      if (nd.x > width - m) fx -= (nd.x - width + m) * 0.02;
+      if (nd.y < m) fy += (m - nd.y) * 0.02;
+      if (nd.y > height - m) fy -= (nd.y - height + m) * 0.02;
+
+      nd.vx = (nd.vx + fx) * P.damp;
+      nd.vy = (nd.vy + fy) * P.damp;
+      const sp = Math.sqrt(nd.vx * nd.vx + nd.vy * nd.vy);
+      if (sp > 1.2) { nd.vx *= 1.2 / sp; nd.vy *= 1.2 / sp; }
+    }
+    for (const nd of loop) { nd.x += nd.vx; nd.y += nd.vy; }
+  }
+
+  // --- 3. 成長:伸びた辺は分裂し、ランダムな辺に点が生まれる ---
+  const s2 = P.split * P.split;
+  for (const loop of loops) {
+    for (let i = loop.length - 1; i >= 0 && total < MAXN; i--) {
+      const a = loop[i], b = loop[(i + 1) % loop.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (dx * dx + dy * dy > s2) {
+        loop.splice(i + 1, 0, mk((a.x + b.x) / 2 + random(-1, 1), (a.y + b.y) / 2 + random(-1, 1)));
+        total++;
+      }
+    }
+  }
+  let shots = Math.floor(P.inject) + (random(1) < P.inject % 1 ? 1 : 0);
+  while (shots-- > 0 && total < MAXN && loops.length > 0) {
+    const loop = random(loops);
+    const i = (random(loop.length)) | 0;
+    const a = loop[i], b = loop[(i + 1) % loop.length];
+    loop.splice(i + 1, 0, mk((a.x + b.x) / 2 + random(-1, 1), (a.y + b.y) / 2 + random(-1, 1)));
+    total++;
+  }
+
+  // --- 薄いインクで描き重ねる(色相が少しずつ回るので履歴が地層になる) ---
+  const hue = (baseHue + frameCount * 0.06) % 360;
+  stroke(hue, 55, 95, 6);
+  strokeWeight(1);
+  noFill();
+  for (const loop of loops) {
+    const n = loop.length;
+    for (let i = 0; i < n; i++) {
+      const a = loop[i], b = loop[(i + 1) % n];
+      line(a.x, a.y, b.x, b.y);
+    }
+  }
+  if (frameCount % 30 === 0) updateHud();
+}
+
+function updateHud() {
+  const hud = document.getElementById('hud');
+  if (hud) hud.textContent =
+    `radius  ${P.R.toFixed(1)}  split ${P.split.toFixed(1)}\n` +
+    `attract ${P.attract.toFixed(2)}  repulse ${P.repulse.toFixed(2)}\n` +
+    `grow    ${P.inject.toFixed(1)}/f  nodes ${total}${total >= MAXN ? ' (成熟)' : ''}`;
+}
+
+function mousePressed() {
+  if (mouseY > 60) plant(mouseX, mouseY);
+}
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  reseed();
+}
+function keyPressed() { if (key === 's') saveCanvas('growth', 'png'); }
+</script>
+</body>
+</html>
