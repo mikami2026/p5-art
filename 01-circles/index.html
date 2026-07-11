@@ -19,26 +19,105 @@
 </head>
 <body>
 <a class="back" href="../index.html">&larr; ギャラリーに戻る</a>
+<div class="hint" style="position:fixed;bottom:14px;left:14px;z-index:10;font-family:-apple-system,sans-serif;font-size:12px;color:#7a6f8a;">
+  マウスを動かすと円が生まれ、ゆっくり漂って消えていく / 速く動かすと小さく、ゆっくりで大きく / c でクリア / s で保存
+</div>
 <script>
-// ===== 01: Drifting Circles =====
-// マウスを動かすと、その軌跡に半透明の円が重なっていく。
-// draw() が毎フレーム呼ばれるという p5.js の基本を体感する最初のスケッチ。
+// ===== 01: Drifting Ink =====
+// マウスの軌跡にインクが飛び散る。draw() が毎フレーム呼ばれるという
+// p5.js の基本はそのまま。生まれたインク跡はゆっくり漂いながら薄れて消える。
+// 本体は不定形のにじみ + 周りに飛沫の粒。手の速さで大きさが変わり、
+// 色は時間とともにゆっくり巡る。
+let splats = [];
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(HSB, 360, 100, 100, 100);
-  background(20);
+  background(258, 45, 8);
 }
 function draw() {
-  noStroke();
-  fill(random(180, 280), 70, 90, 30);  // 色相を青〜紫に絞ってまとめる
-  circle(mouseX, mouseY, random(10, 50));
+  background(258, 45, 8);                 // 毎フレーム塗り直し、インクは自分で漂い消える
+
+  // マウスの動き(=速さ)に応じて軌跡上にインクを飛ばす。速いほど小さく細かく
+  const speed = dist(mouseX, mouseY, pmouseX, pmouseY);
+  if (speed > 0.5) {
+    const n = 1 + floor(speed / 14);
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      const x = lerp(pmouseX, mouseX, t), y = lerp(pmouseY, mouseY, t);
+      // 飛ぶ向き = マウスの進行方向。勢いよく振るほど遠くへ飛沫が伸びる
+      splats.push(new Splat(x, y, map(speed, 0, 40, 44, 12, true),
+                            atan2(mouseY - pmouseY, mouseX - pmouseX), speed));
+    }
+  }
+  for (let i = splats.length - 1; i >= 0; i--) {
+    splats[i].update();
+    splats[i].show();
+    if (splats[i].dead()) splats.splice(i, 1);
+  }
+}
+class Splat {
+  constructor(x, y, r, dir, speed) {
+    this.pos = createVector(x + random(-4, 4), y + random(-4, 4));
+    this.r = r * random(0.85, 1.2);
+    this.hue = (frameCount * 0.3) % 100 + 190;   // 時間で青→紫をゆっくり巡回
+    this.sat = random(70, 95);
+    this.drift = createVector(random(-0.15, 0.15), random(-0.5, -0.15)); // ゆるく上昇
+    this.rot = random(TWO_PI);
+    this.age = 0;
+    this.span = random(140, 280);
+
+    // 本体のにじみ: 中心のまわりに不揃いな半径の頂点を並べた不定形
+    this.blob = [];
+    const pts = floor(random(9, 14));
+    for (let i = 0; i < pts; i++) {
+      const spike = random() < 0.25 ? random(1.2, 1.7) : random(0.7, 1.05); // たまに尖る
+      this.blob.push({ a: TWO_PI * i / pts, rf: spike });
+    }
+    // 飛沫の粒: 進行方向を中心にばらまく。勢いが強いほど遠く・多く
+    this.drops = [];
+    const nd = floor(random(4, 8) + speed / 10);
+    for (let i = 0; i < nd; i++) {
+      const a = dir + random(-0.9, 0.9);
+      const dd = this.r * random(1.3, 2.6 + speed / 20);
+      this.drops.push({ x: cos(a) * dd, y: sin(a) * dd, s: this.r * random(0.08, 0.28) });
+    }
+  }
+  update() {
+    this.drift.x += (noise(this.rot, frameCount * 0.01) - 0.5) * 0.05;  // 左右にゆらぎ
+    this.pos.add(this.drift);
+    this.age++;
+  }
+  show() {
+    const life = 1 - this.age / this.span;       // 1→0
+    const grow = 1 + (1 - life) * 0.35;           // 漂いながら少しにじみ広がる
+    const alpha = 34 * life;
+    noStroke();
+    fill(this.hue % 360, this.sat, 92, alpha);
+    push();
+    translate(this.pos.x, this.pos.y);
+    rotate(this.rot);
+    // 本体のにじみ(なめらかな閉曲線)
+    beginShape();
+    const b = this.blob, n = b.length;
+    curveVertex(cos(b[n-1].a) * b[n-1].rf * this.r * grow, sin(b[n-1].a) * b[n-1].rf * this.r * grow);
+    for (let i = 0; i < n; i++) curveVertex(cos(b[i].a) * b[i].rf * this.r * grow, sin(b[i].a) * b[i].rf * this.r * grow);
+    curveVertex(cos(b[0].a) * b[0].rf * this.r * grow, sin(b[0].a) * b[0].rf * this.r * grow);
+    curveVertex(cos(b[1].a) * b[1].rf * this.r * grow, sin(b[1].a) * b[1].rf * this.r * grow);
+    endShape(CLOSE);
+    // 飛沫の粒
+    for (const d of this.drops) circle(d.x * grow, d.y * grow, d.s * 2);
+    pop();
+  }
+  dead() { return this.age >= this.span; }
 }
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  background(20);
+  background(258, 45, 8);
 }
 function keyPressed() {
-  if (key === 's') saveCanvas('circles', 'png');
+  if (key === 's') saveCanvas('ink', 'png');
+  if (key === 'c') splats = [];
 }
 </script>
 </body>

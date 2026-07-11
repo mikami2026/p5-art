@@ -23,36 +23,90 @@
 </head>
 <body>
 <a class="back" href="../index.html">&larr; ギャラリーに戻る</a>
-<div class="hint">風に揺れる再帰の木 / s キーで画像保存</div>
+<div class="hint">マウス左右で風向き / クリックで木を植え替え / s キーで画像保存</div>
 <script>
 // ===== 04: Fractal Tree =====
 // 「枝を1本描いて、その先から少し小さい枝を2本描く」を再帰で繰り返す。
-// 短いコードから自己相似の複雑な形が生まれる。noiseとsinで風に揺らした。
-let angle = 25;
+// 短いコードから自己相似の複雑な形が生まれる。
+// 枝分かれは2〜3本にゆらぎ、葉が風で舞い落ちる。マウスで風を操り、
+// 時間とともに季節の色(緑→黄→紅→冬)が移ろう。
+let wind = 0, season = 0, leaves = [], seed = 1;
 function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(HSB, 360, 100, 100, 100);
 }
 function draw() {
-  background(220, 30, 10);
-  angle = 25 + sin(frameCount * 0.02) * 8 + noise(frameCount * 0.01) * 10;
+  background(220, 30, 8);
+  season = (frameCount * 0.0015) % 1;            // 0〜1で一年が巡る
+  // マウスの左右位置で風の基準、そこへnoiseとsinの揺れを足す
+  const target = map(mouseX, 0, width, -14, 14, true);
+  wind = lerp(wind, target, 0.03) + sin(frameCount * 0.02) * 5 + (noise(frameCount * 0.01) - 0.5) * 12;
+
+  randomSeed(seed);                              // 毎フレーム同じ木の形を再現
+  push();
   translate(width / 2, height);
-  branch(min(width, height) * 0.26);
+  branch(min(width, height) * 0.26, 0);
+  pop();
+
+  updateLeaves();
 }
-function branch(len) {
-  stroke(map(len, 5, 150, 110, 30), 70, 80);   // 太い幹=オレンジ → 枝先=黄緑
-  strokeWeight(map(len, 5, 150, 1, 6));
+// 幹→枝先の色を季節に合わせて返す
+function leafHue() {
+  if (season < 0.35) return random(90, 140);     // 春夏: 緑
+  if (season < 0.55) return random(45, 70);      // 初秋: 黄
+  if (season < 0.8)  return random(5, 30);       // 紅葉: 赤橙
+  return random(200, 230);                        // 冬: 枯れ枝の寒色(葉少なめ)
+}
+function branch(len, depth) {
+  stroke(map(len, 5, 150, 35, 28), 55, map(len, 5, 150, 55, 40));
+  strokeWeight(map(len, 5, 150, 1, 7));
+  const sway = wind * map(len, 5, 150, 1.4, 0.2); // 細い枝ほど大きく揺れる
+  rotate(radians(sway));
   line(0, 0, 0, -len);
   translate(0, -len);
-  if (len > 5) {
-    push(); rotate(radians(angle)); branch(len * 0.67); pop();
-    push(); rotate(radians(-angle)); branch(len * 0.67); pop();
+  if (len > 6 && depth < 11) {
+    const n = random() < 0.25 ? 3 : 2;            // たまに三又
+    const spread = 22 + random(-6, 10);
+    for (let i = 0; i < n; i++) {
+      const a = map(i, 0, n - 1, -spread, spread) + random(-4, 4);
+      push(); rotate(radians(a)); branch(len * random(0.62, 0.72), depth + 1); pop();
+    }
   } else {
-    noStroke();
-    fill(random(80, 140), 70, 90, 70);          // 枝先に葉
-    circle(0, 0, random(3, 7));
+    if (season < 0.8 || random() < 0.3) {         // 冬は葉がまばら
+      noStroke();
+      fill(leafHue(), 65, 90, 65);
+      circle(0, 0, random(3, 7));
+    }
+    // ときどき枝先から葉が舞い落ちる。ワールド座標に変換して飛ばす
+    if (random() < 0.006) {
+      const m = (drawingContext) ? _worldPos() : null;
+      if (m) leaves.push({ x: m.x, y: m.y, vx: 0, vy: 0, h: leafHue(),
+                           r: random(3, 6), spin: random(TWO_PI), life: 255 });
+    }
   }
 }
+// 現在の変換行列から画面上の絶対座標を得る(高解像度ぶんの拡大を割り戻す)
+function _worldPos() {
+  const t = drawingContext.getTransform();
+  const d = pixelDensity();
+  return { x: t.e / d, y: t.f / d };
+}
+function updateLeaves() {
+  noStroke();
+  for (let i = leaves.length - 1; i >= 0; i--) {
+    const lf = leaves[i];
+    lf.vx += (wind * 0.02 + (noise(lf.y * 0.01, frameCount * 0.01) - 0.5) * 0.6);
+    lf.vy += 0.03;                                // 重力(ゆっくり)
+    lf.vx *= 0.98; lf.vy = min(lf.vy, 1.6);
+    lf.x += lf.vx; lf.y += lf.vy; lf.spin += 0.05;
+    lf.life -= 0.7;
+    fill(lf.h, 60, 88, map(lf.life, 0, 255, 0, 70));
+    push(); translate(lf.x, lf.y); rotate(lf.spin);
+    ellipse(0, 0, lf.r * 1.6, lf.r); pop();
+    if (lf.life <= 0 || lf.y > height + 20) leaves.splice(i, 1);
+  }
+}
+function mousePressed() { seed = floor(random(1e6)); leaves = []; }
 function windowResized() { resizeCanvas(windowWidth, windowHeight); }
 function keyPressed() { if (key === 's') saveCanvas('fractal_tree', 'png'); }
 </script>

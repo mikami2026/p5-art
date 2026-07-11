@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flow Field — p5.js art</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #0d0b14; overflow: hidden; }
+  html, body { margin: 0; padding: 0; background: #f2ede2; overflow: hidden; }
   .ui {
     position: fixed; top: 14px; left: 14px; z-index: 10;
     font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
@@ -18,22 +18,36 @@
     color: #e8e3f0; text-decoration: none; font-size: 13px; cursor: pointer;
   }
   .ui a:hover, .ui button:hover { background: rgba(58,45,92,0.7); }
+  .ui button.active { background: rgba(150,110,230,0.85); border-color: rgba(255,255,255,0.4); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
 <div class="ui">
   <a href="../index.html">&larr; ギャラリーに戻る</a>
-  <button onclick="reseed()">パターンを変える</button>
+  <button id="m0" class="active" onclick="setMode(0)">描く</button>
+  <button id="m1" onclick="setMode(1)">渦</button>
+  <button id="m2" onclick="setMode(2)">引き寄せ</button>
+  <button id="m3" onclick="setMode(3)">押しのけ</button>
+  <button onclick="cyclePalette()">色</button>
+  <button onclick="reseed()">リセット</button>
+  <span id="hud" style="color:#6a5f7a"></span>
 </div>
 <script>
 // ===== 02: Flow Field =====
-// noise() で作った滑らかな「流れ場」に沿って粒子が動く。
-// 隣り合う粒子が似た向きに進むので、川のような流れが生まれる。
+// noise() の滑らかな「流れ場」に沿って、無数の細い線が紙の上を流れていく。
+// インクが水に散るような、明るい紙 × 流線の質感。
+// プレイヤーはドラッグで流れ自体を操作できる:
+//   描く   … ドラッグした方向へ川を「描き足す」(残る・混ざる)
+//   渦     … その場に回転する渦を作る
+//   引き寄せ … 粒子をマウスへ吸い寄せる
+//   押しのけ … 粒子をマウスから吹き飛ばす
 let particles = [];
-const NUM = 1500;
-const SCL = 18;
-let cols, rows, flow = [], zoff = 0, palette = [];
+const NUM = 2000;
+const SCL = 16;
+let cols, rows, flow = [], paint = [], zoff = 0, palette = [], baseHue = 0;
+let mode = 0;                                  // 0:描く 1:渦 2:引き寄せ 3:押しのけ
+const MODE_NAME = ['描く', '渦', '引き寄せ', '押しのけ'];
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -44,27 +58,73 @@ function setup() {
 function reseed() {
   noiseSeed(floor(random(100000)));
   colorMode(HSB, 360, 100, 100, 1);
-  const base = random(360);
-  palette = [];
-  for (let i = 0; i < 5; i++) palette.push(color((base + i * 22) % 360, random(50, 85), random(70, 100)));
-  background(8, 30, 8);
+  baseHue = random(360);
+  buildPalette();
+  background(40, 10, 95);          // 温かみのある紙
   particles = [];
   for (let i = 0; i < NUM; i++) particles.push(new Particle());
+  paint = new Array(cols * rows).fill(null).map(() => createVector(0, 0));
   zoff = 0;
+  updateHud();
+}
+function buildPalette() {
+  // 明るい紙に映えるよう、濃いめ(暗く彩度高め)のインク色
+  palette = [];
+  for (let i = 0; i < 5; i++) palette.push(color((baseHue + i * 26) % 360, random(55, 90), random(38, 72)));
+}
+function cyclePalette() {          // 色だけ変える(絵は消さない)
+  baseHue = (baseHue + random(60, 160)) % 360;
+  buildPalette();
+  for (const p of particles) p.col = random(palette);
+}
+function setMode(n) {
+  mode = n;
+  for (let i = 0; i < 4; i++) document.getElementById('m' + i).classList.toggle('active', i === n);
+  updateHud();
+}
+function updateHud() {
+  document.getElementById('hud').textContent = 'モード: ' + MODE_NAME[mode] + ' — ドラッグで操作 / 1〜4キー切替 / s 保存';
 }
 function draw() {
+  // ごく薄く紙の色を重ね、古い線をゆっくり紙に沈ませて描き続けられるように
+  noStroke();
+  fill(40, 10, 95, 0.015);
+  rect(0, 0, width, height);
+
+  // 「描く」モード: マウスの動いた向きを流れ場に塗り込む
+  if (mode === 0 && mouseIsPressed) paintFlow();
+
+  // ノイズ流 + プレイヤーが描いた流れ を合成し、描いた分は少しずつ減衰
   let yoff = 0;
   for (let y = 0; y < rows; y++) {
     let xoff = 0;
     for (let x = 0; x < cols; x++) {
+      const i = x + y * cols;
       const a = noise(xoff, yoff, zoff) * TWO_PI * 2;
-      flow[x + y * cols] = p5.Vector.fromAngle(a);
+      const base = p5.Vector.fromAngle(a);
+      flow[i] = base.add(paint[i]);
+      paint[i].mult(0.97);
       xoff += 0.1;
     }
     yoff += 0.1;
   }
   zoff += 0.003;
-  for (const p of particles) { p.follow(flow); p.update(); p.edges(); p.show(); }
+  for (const p of particles) { p.follow(flow); p.interact(); p.update(); p.edges(); p.show(); }
+}
+// マウスの移動ベクトルを、カーソル周辺のセルへ流れとして加える
+function paintFlow() {
+  const dir = createVector(mouseX - pmouseX, mouseY - pmouseY);
+  if (dir.magSq() < 0.5) return;
+  dir.setMag(2.2);
+  const cx = mouseX / SCL, cy = mouseY / SCL, R = 5;
+  for (let dy = -R; dy <= R; dy++) {
+    for (let dx = -R; dx <= R; dx++) {
+      const gx = floor(cx + dx), gy = floor(cy + dy);
+      if (gx < 0 || gy < 0 || gx >= cols || gy >= rows) continue;
+      const falloff = constrain(1 - dist(0, 0, dx, dy) / R, 0, 1);
+      paint[gx + gy * cols].add(dir.copy().mult(falloff)).limit(3.5);
+    }
+  }
 }
 class Particle {
   constructor() {
@@ -74,12 +134,43 @@ class Particle {
     this.maxSpeed = random(1.5, 3.5);
     this.prev = this.pos.copy();
     this.col = random(palette);
+    this.life = random(200, 600);   // 寿命を過ぎたら別の場所で生まれ変わる
   }
   follow(f) { const v = f[floor(this.pos.x/SCL) + floor(this.pos.y/SCL)*cols]; if (v) this.acc.add(v); }
-  update() { this.vel.add(this.acc); this.vel.limit(this.maxSpeed); this.pos.add(this.vel); this.acc.mult(0); }
+  interact() {
+    if (!mouseIsPressed || mode === 0) return;   // 描くモードは場を操作するので個別処理なし
+    const m = createVector(mouseX, mouseY);
+    const d = p5.Vector.sub(m, this.pos);
+    const dist = d.mag();
+    if (dist >= 220 || dist <= 1) return;
+    const strength = map(dist, 0, 220, 1.0, 0);
+    if (mode === 1) {                            // 渦: 中心へ引き込み+回転
+      this.acc.add(d.copy().setMag(strength * 0.4));
+      this.acc.add(createVector(-d.y, d.x).setMag(strength));
+    } else if (mode === 2) {                     // 引き寄せ
+      this.acc.add(d.copy().setMag(strength * 1.2));
+    } else if (mode === 3) {                     // 押しのけ
+      this.acc.add(d.copy().setMag(-strength * 1.6));
+    }
+  }
+  update() {
+    this.vel.add(this.acc); this.vel.limit(this.maxSpeed);
+    this.pos.add(this.vel); this.acc.mult(0);
+    if (--this.life < 0) this.respawn();
+  }
+  respawn() {
+    this.pos.set(random(width), random(height));
+    this.vel.mult(0); this.prev = this.pos.copy();
+    this.life = random(200, 600); this.col = random(palette);
+  }
   show() {
-    stroke(hue(this.col), saturation(this.col), brightness(this.col), 0.06);
-    strokeWeight(1.4);
+    const spd = this.vel.mag() / this.maxSpeed;               // 0〜1
+    // 明るい紙の上: 速い線ほど濃く太いインクに
+    const b = lerp(70, 38, spd);
+    const a = lerp(0.03, 0.10, spd);
+    const w = lerp(0.6, 2.2, spd);
+    stroke(hue(this.col), saturation(this.col), b, a);
+    strokeWeight(w);
     line(this.prev.x, this.prev.y, this.pos.x, this.pos.y);
     this.prev = this.pos.copy();
   }
@@ -96,7 +187,10 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   cols = floor(width / SCL) + 1; rows = floor(height / SCL) + 1; reseed();
 }
-function keyPressed() { if (key === 's') saveCanvas('flowfield', 'png'); }
+function keyPressed() {
+  if (key === 's') saveCanvas('flowfield', 'png');
+  if (key >= '1' && key <= '4') setMode(int(key) - 1);
+}
 </script>
 </body>
 </html>

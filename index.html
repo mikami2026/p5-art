@@ -109,9 +109,9 @@
     <a class="card" href="01-circles/index.html">
       <span class="num">01</span>
       <div class="preview" id="prev-circles"></div>
-      <h2>漂う円<span class="en">Drifting Circles</span></h2>
+      <h2>漂うインク<span class="en">Drifting Ink</span></h2>
       <p class="tag">Draw Loop</p>
-      <p class="desc">毎フレーム描き続ける draw() の基本。半透明の円が重なって濃淡を作る。</p>
+      <p class="desc">毎フレーム描き続ける draw() の基本。マウスの軌跡にインクが飛び散り、漂いながら消えていく。</p>
       <span class="open">開く</span>
     </a>
 
@@ -120,7 +120,7 @@
       <div class="preview" id="prev-flow"></div>
       <h2>流れ場<span class="en">Flow Field</span></h2>
       <p class="tag">Perlin Noise</p>
-      <p class="desc">noise() で作った見えない流れに沿って、数千の粒子が川のように動く。</p>
+      <p class="desc">noise() の見えない流れに沿って、無数の線が紙の上をインクのように流れる。ドラッグで流れ自体を描いたり、渦や引力で操れる。</p>
       <span class="open">開く</span>
     </a>
 
@@ -138,7 +138,7 @@
       <div class="preview" id="prev-tree"></div>
       <h2>再帰の木<span class="en">Fractal Tree</span></h2>
       <p class="tag">Recursion</p>
-      <p class="desc">枝が自分自身を呼んで枝分かれする。短いコードから自己相似の木が育つ。</p>
+      <p class="desc">枝が自分自身を呼んで枝分かれする。風に葉が舞い落ち、緑から紅葉へ季節が巡る。マウスで風向きを操れる。</p>
       <span class="open">開く</span>
     </a>
 
@@ -192,22 +192,50 @@
 const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function sizeOf(el) { const w = el.clientWidth || 300; return { w, h: Math.round(w * 9 / 16) }; }
 
-// --- 01 漂う円 ---
+// --- 01 漂うインク ---
 new p5((p) => {
-  let pts = [], d;
+  let splats = [], d, t = 0;
+  const mkSplat = (x, y, r) => {
+    const blob = [], pts = 10;
+    for (let i = 0; i < pts; i++) {
+      const spike = p.random() < 0.25 ? p.random(1.2, 1.6) : p.random(0.7, 1.05);
+      blob.push({ a: p.TWO_PI * i / pts, rf: spike });
+    }
+    const drops = [], nd = p.floor(p.random(3, 6));
+    for (let i = 0; i < nd; i++) {
+      const a = p.random(p.TWO_PI), dd = r * p.random(1.3, 2.4);
+      drops.push({ x: Math.cos(a) * dd, y: Math.sin(a) * dd, s: r * p.random(0.1, 0.28) });
+    }
+    return { x, y, r, blob, drops, h: (p.frameCount * 0.5) % 100 + 190,
+             rot: p.random(p.TWO_PI), dy: p.random(-0.4, -0.15), age: 0, span: p.random(80, 160) };
+  };
   p.setup = () => {
     d = sizeOf(document.getElementById('prev-circles'));
     p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
-    p.background(20); p.noStroke();
-    for (let i = 0; i < 3; i++) pts.push({ x: p.random(d.w), y: p.random(d.h), o: p.random(1000) });
+    p.background(258, 45, 8);
   };
   p.draw = () => {
-    for (const pt of pts) {
-      pt.x = p.noise(pt.o) * d.w; pt.y = p.noise(pt.o + 99) * d.h; pt.o += 0.008;
-      p.fill(p.random(180, 280), 70, 90, 22);
-      p.circle(pt.x, pt.y, p.random(8, 34));
+    p.background(258, 45, 8);
+    t += 0.01;
+    if (p.frameCount % 4 === 0) splats.push(mkSplat(p.noise(t) * d.w, p.noise(t + 50) * d.h, p.random(9, 20)));
+    p.noStroke();
+    for (let i = splats.length - 1; i >= 0; i--) {
+      const s = splats[i]; s.y += s.dy; s.age++;
+      const life = 1 - s.age / s.span, grow = 1 + (1 - life) * 0.35;
+      p.fill(s.h % 360, 80, 92, 32 * life);
+      p.push(); p.translate(s.x, s.y); p.rotate(s.rot);
+      const b = s.blob, n = b.length;
+      p.beginShape();
+      p.curveVertex(Math.cos(b[n-1].a) * b[n-1].rf * s.r * grow, Math.sin(b[n-1].a) * b[n-1].rf * s.r * grow);
+      for (let k = 0; k < n; k++) p.curveVertex(Math.cos(b[k].a) * b[k].rf * s.r * grow, Math.sin(b[k].a) * b[k].rf * s.r * grow);
+      p.curveVertex(Math.cos(b[0].a) * b[0].rf * s.r * grow, Math.sin(b[0].a) * b[0].rf * s.r * grow);
+      p.curveVertex(Math.cos(b[1].a) * b[1].rf * s.r * grow, Math.sin(b[1].a) * b[1].rf * s.r * grow);
+      p.endShape(p.CLOSE);
+      for (const dr of s.drops) p.circle(dr.x * grow, dr.y * grow, dr.s * 2);
+      p.pop();
+      if (s.age >= s.span) splats.splice(i, 1);
     }
-    if (reduce && p.frameCount > 80) p.noLoop();
+    if (reduce && p.frameCount > 120) p.noLoop();
   };
 }, document.getElementById('prev-circles'));
 
@@ -217,8 +245,8 @@ new p5((p) => {
   p.setup = () => {
     d = sizeOf(document.getElementById('prev-flow'));
     p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 1);
-    p.background(230, 40, 6); cols = Math.floor(d.w/SCL)+1; rows = Math.floor(d.h/SCL)+1;
-    const base = 200;
+    p.background(40, 10, 95); cols = Math.floor(d.w/SCL)+1; rows = Math.floor(d.h/SCL)+1;
+    const base = 210;
     for (let i = 0; i < N; i++) parts.push({
       x: p.random(d.w), y: p.random(d.h), px: 0, py: 0, ms: p.random(0.8, 2),
       h: (base + p.random(-30, 60))
@@ -235,7 +263,7 @@ new p5((p) => {
       pt.x += Math.cos(a) * pt.ms; pt.y += Math.sin(a) * pt.ms;
       if (pt.x>d.w){pt.x=0;pt.px=0;} if (pt.x<0){pt.x=d.w;pt.px=d.w;}
       if (pt.y>d.h){pt.y=0;pt.py=0;} if (pt.y<0){pt.y=d.h;pt.py=d.h;}
-      p.stroke(pt.h % 360, 75, 95, 0.08); p.strokeWeight(1.1);
+      p.stroke(pt.h % 360, 80, 48, 0.1); p.strokeWeight(1.1);   // 明るい紙に映える濃いインク
       p.line(pt.px, pt.py, pt.x, pt.y); pt.px = pt.x; pt.py = pt.y;
     }
     if (reduce && p.frameCount > 200) p.noLoop();
@@ -273,23 +301,44 @@ new p5((p) => {
 
 // --- 04 再帰の木 ---
 new p5((p) => {
-  let d, ang = 25;
+  let d, ang = 25, season = 0, leaves = [];
+  const leafHue = () => {
+    if (season < 0.35) return p.random(90, 140);   // 緑
+    if (season < 0.55) return p.random(45, 70);    // 黄
+    if (season < 0.8)  return p.random(5, 30);     // 紅葉
+    return p.random(200, 230);                      // 冬
+  };
   const branch = (len) => {
-    p.stroke(p.map(len, 4, 70, 110, 30), 70, 80); p.strokeWeight(p.map(len, 4, 70, 0.8, 3));
+    p.stroke(p.map(len, 4, 70, 35, 28), 55, p.map(len, 4, 70, 55, 40)); p.strokeWeight(p.map(len, 4, 70, 0.8, 3.5));
     p.line(0, 0, 0, -len); p.translate(0, -len);
     if (len > 4) {
       p.push(); p.rotate(p.radians(ang)); branch(len * 0.67); p.pop();
       p.push(); p.rotate(p.radians(-ang)); branch(len * 0.67); p.pop();
-    } else { p.noStroke(); p.fill(p.random(80,140), 70, 90, 70); p.circle(0,0,p.random(2,4)); }
+    } else if (season < 0.8 || p.random() < 0.3) {
+      p.noStroke(); p.fill(leafHue(), 65, 90, 70); p.circle(0, 0, p.random(2, 4));
+    }
   };
   p.setup = () => {
     d = sizeOf(document.getElementById('prev-tree'));
     p.createCanvas(d.w, d.h); p.colorMode(p.HSB, 360, 100, 100, 100);
   };
   p.draw = () => {
-    p.background(220, 30, 9);
+    p.background(220, 30, 8);
+    season = (p.frameCount * 0.0016) % 1;
     ang = 25 + Math.sin(p.frameCount * 0.02) * 8 + p.noise(p.frameCount * 0.01) * 10;
     p.push(); p.translate(d.w/2, d.h); branch(d.h * 0.32); p.pop();
+
+    // 舞い落ちる葉(木の上のほうから湧かせる)
+    if (p.random() < 0.25) leaves.push({ x: p.random(d.w*0.2, d.w*0.8), y: p.random(d.h*0.15, d.h*0.5),
+                                         vx: 0, h: leafHue(), r: p.random(2, 4), life: 100 });
+    p.noStroke();
+    for (let i = leaves.length - 1; i >= 0; i--) {
+      const lf = leaves[i];
+      lf.vx += (p.noise(lf.y * 0.02, p.frameCount * 0.02) - 0.5) * 0.4;
+      lf.x += lf.vx; lf.y += 0.6; lf.life -= 0.8;
+      p.fill(lf.h, 60, 88, p.map(lf.life, 0, 100, 0, 70)); p.circle(lf.x, lf.y, lf.r);
+      if (lf.life <= 0 || lf.y > d.h) leaves.splice(i, 1);
+    }
     if (reduce && p.frameCount > 150) p.noLoop();
   };
 }, document.getElementById('prev-tree'));
